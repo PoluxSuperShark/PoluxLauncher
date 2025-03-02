@@ -1,7 +1,0 @@
-:root {
-    --main_color: rgb(47, 47, 185);
-}
-
-*.name {
-    color: var(--main_color);
-}
