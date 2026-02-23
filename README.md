@@ -1,2 +1,3 @@
 # PoluxLauncher
-The official launcher of PoluxSuperShark for his Minecraft modded server.
+
+pip install -r requirements.txt
