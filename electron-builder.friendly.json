@@ -1,0 +1,38 @@
+{
+  "appId": "com.polux.launcher.friendly",
+  "productName": "PoluxLauncher Friendly",
+  "files": [
+    "electron/**/*",
+    "package.json",
+    "background.png",
+    "icon.ico",
+    "launcher_cli.py",
+    "launcher_core.py"
+  ],
+  "extraResources": [
+    {
+      "from": "dist/launcher_cli_backend.exe",
+      "to": "backend/launcher_cli_backend.exe"
+    }
+  ],
+  "extraMetadata": {
+    "main": "electron/main.friendly.js",
+    "name": "polux-launcher-friendly"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "icon.ico",
+    "artifactName": "PoluxLauncher-Friendly-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}

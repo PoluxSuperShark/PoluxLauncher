@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Polux Launcher - Friendly</title>
+    <link rel="stylesheet" href="./friendly.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="hero card">
+        <div class="hero-text">
+          <p class="eyebrow">PoluxLauncher</p>
+          <h1>Launch Minecraft in 2 clicks</h1>
+          <p class="lead">
+            Install Forge + mods once, then launch directly on the Polux server.
+          </p>
+        </div>
+        <div class="hero-badge" id="runState">Idle</div>
+      </section>
+
+      <section class="layout">
+        <article class="card panel">
+          <h2>Player</h2>
+          <label for="username">Minecraft username</label>
+          <input id="username" type="text" placeholder="Player" maxlength="16" />
+
+          <div class="meta">
+            <div>
+              <span class="k">Server</span>
+              <span class="v">poluxcity.falixsrv.me</span>
+            </div>
+            <div>
+              <span class="k">Version</span>
+              <span class="v">1.20.1 + Forge</span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="installBtn" class="btn btn-primary" type="button">Install Mods</button>
+            <button id="playBtn" class="btn btn-secondary" type="button">Play</button>
+          </div>
+
+          <p id="status" class="status">Ready</p>
+
+          <div class="progress-wrap" aria-hidden="true">
+            <div class="progress-track">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <span id="progressText">0%</span>
+          </div>
+        </article>
+
+        <article class="card panel logs">
+          <div class="logs-head">
+            <h2>Launcher logs</h2>
+            <button id="clearBtn" class="btn btn-ghost" type="button">Clear</button>
+          </div>
+          <pre id="console" aria-live="polite"></pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="./renderer-friendly.js"></script>
+  </body>
+</html>

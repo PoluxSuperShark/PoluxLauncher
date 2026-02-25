@@ -1,50 +1,22 @@
 {
   "name": "polux-launcher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Polux Launcher desktop UI",
-  "main": "electron/main.js",
+  "main": "electron/main.tactical.js",
   "scripts": {
     "start": "electron .",
-    "check:js": "node --check electron/main.js && node --check electron/preload.js && node --check electron/renderer.js",
+    "start:tactical": "electron .",
+    "start:friendly": "electron electron/main.friendly.js",
+    "check:js": "node --check electron/main.common.js && node --check electron/main.js && node --check electron/main.tactical.js && node --check electron/main.friendly.js && node --check electron/preload.js && node --check electron/renderer.js && node --check electron/renderer-friendly.js",
     "build:backend": "python -m PyInstaller --noconfirm --clean --onefile --name launcher_cli_backend launcher_cli.py",
-    "dist": "npm run build:backend && electron-builder --win nsis"
+    "dist:tactical": "npm run build:backend && electron-builder --win nsis --config electron-builder.tactical.json",
+    "dist:friendly": "npm run build:backend && electron-builder --win nsis --config electron-builder.friendly.json",
+    "dist:all": "npm run dist:tactical && npm run dist:friendly",
+    "dist": "npm run dist:tactical"
   },
   "devDependencies": {
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3"
-  },
-  "build": {
-    "appId": "com.polux.launcher",
-    "productName": "PoluxLauncher",
-    "files": [
-      "electron/**/*",
-      "package.json",
-      "background.png",
-      "icon.ico",
-      "launcher_cli.py",
-      "launcher_core.py"
-    ],
-    "extraResources": [
-      {
-        "from": "dist/launcher_cli_backend.exe",
-        "to": "backend/launcher_cli_backend.exe"
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
   }
 }
