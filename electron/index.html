@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Polux Launcher Tactical UI</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <div class="title">
+          <h1>POLUX // LAUNCHER</h1>
+          <div class="subtitle">Forge 1.20.1 Tactical Control Interface</div>
+        </div>
+
+        <div class="status-indicators">
+          <div class="status-item" id="runtime-status">
+            <span class="status-dot" id="runtime-dot"></span>
+            <span id="runtime-text">Runtime: IDLE</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot online"></span>
+            <span>Backend: LINKED</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section class="left-panel">
+          <div class="panel-header">
+            <h3>SESSION</h3>
+          </div>
+
+          <div class="panel-body">
+            <label for="username">Pseudo Minecraft</label>
+            <input id="username" type="text" placeholder="Player" maxlength="16" />
+
+            <div class="info-card">
+              <div class="info-label">Server</div>
+              <div class="info-value">poluxcity.falixsrv.me</div>
+            </div>
+
+            <div class="info-card">
+              <div class="info-label">Version</div>
+              <div class="info-value">Minecraft 1.20.1 + Forge</div>
+            </div>
+
+            <p id="status" class="status">Pret</p>
+          </div>
+        </section>
+
+        <section class="center-panel">
+          <div class="panel-header">
+            <h3>TACTICAL CONSOLE</h3>
+            <div class="panel-note">live output</div>
+          </div>
+          <pre id="console" aria-live="polite"></pre>
+        </section>
+
+        <section class="right-panel">
+          <div class="panel-header">
+            <h3>CONTROL</h3>
+          </div>
+          <div class="panel-body">
+            <button id="installBtn" class="btn-control btn-install" type="button">
+              INSTALL FORGE + MODS
+            </button>
+            <button id="playBtn" class="btn-control btn-launch" type="button">
+              LAUNCH MINECRAFT
+            </button>
+            <div class="hint">Install once, then launch directly.</div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>
