@@ -139,6 +139,40 @@ body {
   font-size: 11px;
 }
 
+.tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.tab-btn {
+  border: 1px solid var(--line);
+  background: rgba(0, 255, 65, 0.06);
+  color: var(--ink-soft);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: rgba(0, 255, 65, 0.18);
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .panel-body {
   padding: 14px;
 }
@@ -150,7 +184,8 @@ label {
   font-size: 12px;
 }
 
-input {
+input,
+select {
   width: 100%;
   background: rgba(0, 255, 65, 0.07);
   border: 1px solid var(--line);
@@ -161,10 +196,17 @@ input {
   font-family: inherit;
 }
 
-input:focus {
+input:focus,
+select:focus {
   outline: none;
   border-color: var(--ink);
   box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+}
+
+.settings-stack {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
 }
 
 .info-card {
@@ -198,7 +240,34 @@ input:focus {
   color: var(--danger);
 }
 
-#console {
+.update-notice {
+  margin-top: 10px;
+  border: 1px solid var(--cyan);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(0, 231, 255, 0.1);
+  color: var(--cyan);
+  font-size: 12px;
+}
+
+.btn-link {
+  border: 1px solid var(--cyan);
+  background: rgba(0, 231, 255, 0.14);
+  color: var(--cyan);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#console,
+#crashReport,
+#changelog {
   margin: 0;
   padding: 14px;
   height: 100%;

@@ -3,7 +3,11 @@ import sys
 
 
 def emit(kind: str, message: str) -> None:
-    print(f"[{kind}] {message}", flush=True)
+    lines = str(message).split("\n")
+    if not lines:
+        lines = [""]
+    for line in lines:
+        print(f"[{kind}] {line}", flush=True)
 
 
 def load_backend():
@@ -31,13 +35,19 @@ def run_install() -> int:
         return 1
 
 
-def run_launch(username: str) -> int:
+def run_launch(username: str, ram_gb: int) -> int:
     _install, launch = load_backend()
     if launch is None:
         return 1
 
     try:
-        launch(username=username, on_log=lambda text: emit("LOG", text), on_status=lambda text: emit("STATUS", text))
+        launch(
+            username=username,
+            ram_gb=ram_gb,
+            on_log=lambda text: emit("LOG", text),
+            on_status=lambda text: emit("STATUS", text),
+            on_crash=lambda text: emit("CRASH", text),
+        )
         return 0
     except Exception as exc:  # pragma: no cover
         emit("ERROR", str(exc))
@@ -52,12 +62,13 @@ def main() -> int:
 
     launch_parser = subparsers.add_parser("launch", help="Launch Minecraft")
     launch_parser.add_argument("--username", default="Player", help="In-game username")
+    launch_parser.add_argument("--ram-gb", type=int, default=4, help="Allocated RAM in GB")
 
     args = parser.parse_args()
     if args.command == "install":
         return run_install()
     if args.command == "launch":
-        return run_launch(args.username)
+        return run_launch(args.username, args.ram_gb)
 
     emit("ERROR", f"Commande non geree: {args.command}")
     return 2

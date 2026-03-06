@@ -36,6 +36,30 @@
             <label for="username">Pseudo Minecraft</label>
             <input id="username" type="text" placeholder="Player" maxlength="16" />
 
+            <div class="settings-stack">
+              <div>
+                <label for="themeMode">Theme</label>
+                <select id="themeMode">
+                  <option value="tactical">Tactical (Black)</option>
+                  <option value="friendly">Friendly (Light)</option>
+                </select>
+              </div>
+
+              <div>
+                <label for="ramGb">RAM allouee</label>
+                <select id="ramGb">
+                  <option value="2">2 GB</option>
+                  <option value="3">3 GB</option>
+                  <option value="4">4 GB</option>
+                  <option value="6">6 GB</option>
+                  <option value="8">8 GB</option>
+                  <option value="10">10 GB</option>
+                  <option value="12">12 GB</option>
+                  <option value="16">16 GB</option>
+                </select>
+              </div>
+            </div>
+
             <div class="info-card">
               <div class="info-label">Server</div>
               <div class="info-value">poluxcity.falixsrv.me</div>
@@ -47,15 +71,25 @@
             </div>
 
             <p id="status" class="status">Pret</p>
+            <div id="updateNotice" class="update-notice hidden">
+              <div id="updateNoticeText">Mise a jour disponible.</div>
+              <button id="updateBtn" class="btn-link" type="button">Voir</button>
+            </div>
           </div>
         </section>
 
         <section class="center-panel">
           <div class="panel-header">
-            <h3>TACTICAL CONSOLE</h3>
+            <div class="tabs" role="tablist" aria-label="Output tabs">
+              <button id="tabConsole" class="tab-btn active" type="button" role="tab" aria-selected="true">Console</button>
+              <button id="tabLogs" class="tab-btn" type="button" role="tab" aria-selected="false">Logs</button>
+              <button id="tabChangelog" class="tab-btn" type="button" role="tab" aria-selected="false">Changelog</button>
+            </div>
             <div class="panel-note">live output</div>
           </div>
-          <pre id="console" aria-live="polite"></pre>
+          <pre id="console" class="tab-panel active" aria-live="polite"></pre>
+          <pre id="crashReport" class="tab-panel" aria-live="polite"></pre>
+          <pre id="changelog" class="tab-panel" aria-live="polite"></pre>
         </section>
 
         <section class="right-panel">

@@ -44,3 +44,31 @@ npm run dist:all
 Build outputs:
 - `dist\\PoluxLauncher-Tactical-Setup-1.2.0.exe`
 - `dist\\PoluxLauncher-Friendly-Setup-1.2.0.exe`
+
+## Optional custom mods manifest
+
+Create `config\\mods_manifest.json` to override the built-in mod list.
+
+Supported sources:
+- Direct HTTP/HTTPS `.jar` links
+- Modrinth project/version links
+- CurseForge project/file links
+- Google Drive shared file links
+- Google Drive shared folder links (downloads all `.jar` files in folder)
+
+Accepted JSON formats:
+
+```json
+{
+  "example-mod.jar": "https://modrinth.com/mod/example/version/abc123"
+}
+```
+
+```json
+[
+  {
+    "name": "example-mod.jar",
+    "url": "https://drive.google.com/file/d/FILE_ID/view"
+  }
+]
+```

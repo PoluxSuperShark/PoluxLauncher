@@ -25,6 +25,29 @@
           <label for="username">Minecraft username</label>
           <input id="username" type="text" placeholder="Player" maxlength="16" />
 
+          <div class="settings-grid">
+            <div class="setting-row">
+              <label for="themeMode">Theme</label>
+              <select id="themeMode">
+                <option value="friendly">Friendly (Light)</option>
+                <option value="tactical">Tactical (Black)</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label for="ramGb">Allocated RAM</label>
+              <select id="ramGb">
+                <option value="2">2 GB</option>
+                <option value="3">3 GB</option>
+                <option value="4">4 GB</option>
+                <option value="6">6 GB</option>
+                <option value="8">8 GB</option>
+                <option value="10">10 GB</option>
+                <option value="12">12 GB</option>
+                <option value="16">16 GB</option>
+              </select>
+            </div>
+          </div>
+
           <div class="meta">
             <div>
               <span class="k">Server</span>
@@ -42,6 +65,10 @@
           </div>
 
           <p id="status" class="status">Ready</p>
+          <div id="updateNotice" class="update-notice hidden">
+            <div id="updateNoticeText">Update available.</div>
+            <button id="updateBtn" class="btn btn-ghost" type="button">Open</button>
+          </div>
 
           <div class="progress-wrap" aria-hidden="true">
             <div class="progress-track">
@@ -53,10 +80,16 @@
 
         <article class="card panel logs">
           <div class="logs-head">
-            <h2>Launcher logs</h2>
+            <div class="tabs" role="tablist" aria-label="Output tabs">
+              <button id="tabConsole" class="tab-btn active" type="button" role="tab" aria-selected="true">Console</button>
+              <button id="tabLogs" class="tab-btn" type="button" role="tab" aria-selected="false">Logs</button>
+              <button id="tabChangelog" class="tab-btn" type="button" role="tab" aria-selected="false">Changelog</button>
+            </div>
             <button id="clearBtn" class="btn btn-ghost" type="button">Clear</button>
           </div>
-          <pre id="console" aria-live="polite"></pre>
+          <pre id="console" class="tab-panel active" aria-live="polite"></pre>
+          <pre id="crashReport" class="tab-panel" aria-live="polite"></pre>
+          <pre id="changelog" class="tab-panel" aria-live="polite"></pre>
         </article>
       </section>
     </main>
