@@ -58,7 +58,18 @@
                   <option value="16">16 GB</option>
                 </select>
               </div>
+
+              <div>
+                <label for="accountMode">Compte</label>
+                <select id="accountMode">
+                  <option value="offline">Offline</option>
+                  <option value="microsoft">Microsoft (Premium)</option>
+                </select>
+              </div>
             </div>
+
+            <button id="authBtn" class="btn-link auth-btn" type="button">Connexion Microsoft</button>
+            <div id="authState" class="auth-state">Mode offline actif.</div>
 
             <div class="info-card">
               <div class="info-label">Server</div>

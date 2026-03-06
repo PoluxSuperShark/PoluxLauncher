@@ -46,6 +46,18 @@
                 <option value="16">16 GB</option>
               </select>
             </div>
+            <div class="setting-row">
+              <label for="accountMode">Account</label>
+              <select id="accountMode">
+                <option value="offline">Offline</option>
+                <option value="microsoft">Microsoft (Premium)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="auth-actions">
+            <button id="authBtn" class="btn btn-ghost" type="button">Connect Microsoft</button>
+            <span id="authState" class="auth-state">Offline mode active.</span>
           </div>
 
           <div class="meta">

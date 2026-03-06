@@ -1,6 +1,9 @@
 const usernameInput = document.getElementById("username");
 const themeModeSelect = document.getElementById("themeMode");
 const ramGbSelect = document.getElementById("ramGb");
+const accountModeSelect = document.getElementById("accountMode");
+const authBtn = document.getElementById("authBtn");
+const authStateNode = document.getElementById("authState");
 const installBtn = document.getElementById("installBtn");
 const playBtn = document.getElementById("playBtn");
 const clearBtn = document.getElementById("clearBtn");
@@ -20,8 +23,10 @@ const progressText = document.getElementById("progressText");
 
 let busy = false;
 let selectedRamGb = 4;
+let selectedAccountMode = "offline";
 let activeTab = "console";
 let releaseInfo = null;
+let authStatus = { connected: false, provider: "offline", name: "", id: "" };
 
 function setActiveTab(tab) {
   if (tab === "logs" || tab === "changelog") {
@@ -82,10 +87,13 @@ function updateProgressFromStatus(text) {
 function applySettings(settings) {
   const theme = settings?.theme === "tactical" ? "tactical" : "friendly";
   const ramGb = normalizeRamGb(settings?.ramGb);
+  const accountMode = settings?.accountMode === "microsoft" ? "microsoft" : "offline";
 
   selectedRamGb = ramGb;
+  selectedAccountMode = accountMode;
   themeModeSelect.value = theme;
   ramGbSelect.value = String(ramGb);
+  accountModeSelect.value = accountMode;
 }
 
 async function persistSettings(updates) {
@@ -122,6 +130,8 @@ function setBusy(nextBusy) {
   usernameInput.disabled = busy;
   themeModeSelect.disabled = busy;
   ramGbSelect.disabled = busy;
+  accountModeSelect.disabled = busy;
+  authBtn.disabled = busy;
 
   if (busy) {
     runState.textContent = "Working";
@@ -130,6 +140,54 @@ function setBusy(nextBusy) {
     runState.textContent = "Idle";
     runState.classList.remove("busy");
   }
+}
+
+function renderAuthStatus(status) {
+  authStatus = status || { connected: false, provider: "offline", name: "", id: "" };
+  if (authStatus.connected) {
+    authStateNode.textContent = `Microsoft connected: ${authStatus.name || "Unknown"}`;
+    authBtn.textContent = "Disconnect Microsoft";
+  } else {
+    authStateNode.textContent = "Offline mode active.";
+    authBtn.textContent = "Connect Microsoft";
+  }
+}
+
+async function refreshAuthStatus() {
+  if (!window.launcherAPI?.authStatus) {
+    return;
+  }
+
+  try {
+    const status = await window.launcherAPI.authStatus();
+    renderAuthStatus(status);
+  } catch (error) {
+    appendLog(`AUTH ERROR: ${error.message}`);
+  }
+}
+
+async function startMicrosoftLoginFlow() {
+  if (!window.launcherAPI?.authStart || !window.launcherAPI?.authComplete) {
+    appendLog("AUTH ERROR: Microsoft API unavailable.");
+    return;
+  }
+
+  const loginData = await window.launcherAPI.authStart();
+  const opened = await window.launcherAPI.openExternal(loginData.login_url);
+  if (!opened) {
+    throw new Error("Could not open Microsoft login page.");
+  }
+
+  const redirectUrl = window.prompt(
+    "After Microsoft login, paste the full redirect URL here:",
+    "",
+  );
+  if (!redirectUrl || !redirectUrl.trim()) {
+    throw new Error("Login cancelled (no redirect URL provided).");
+  }
+
+  const status = await window.launcherAPI.authComplete(redirectUrl.trim());
+  renderAuthStatus(status);
 }
 
 function formatPublishedDate(isoText) {
@@ -245,6 +303,12 @@ ramGbSelect.addEventListener("change", async () => {
   await persistSettings({ ramGb: selectedRamGb });
 });
 
+accountModeSelect.addEventListener("change", async () => {
+  selectedAccountMode = accountModeSelect.value === "microsoft" ? "microsoft" : "offline";
+  appendLog(`Account mode: ${selectedAccountMode}.`);
+  await persistSettings({ accountMode: selectedAccountMode });
+});
+
 installBtn.addEventListener("click", () => {
   if (busy || !window.launcherAPI) {
     return;
@@ -262,11 +326,41 @@ playBtn.addEventListener("click", () => {
     return;
   }
 
+  if (selectedAccountMode === "microsoft" && !authStatus.connected) {
+    setStatus("Connect Microsoft account first.", true);
+    appendLog("ERROR: Microsoft mode selected without account.");
+    return;
+  }
+
   const username = (usernameInput.value || "").trim() || "Player";
   crashReportNode.textContent = "";
-  appendLog(`Starting game for ${username} with ${selectedRamGb}G...`);
+  appendLog(`Starting game (${selectedAccountMode}) with ${selectedRamGb}G...`);
   setStatus("Launching Minecraft...");
-  window.launcherAPI.startLaunch(username, selectedRamGb);
+  window.launcherAPI.startLaunch(username, selectedRamGb, selectedAccountMode);
+});
+
+authBtn.addEventListener("click", async () => {
+  if (busy || !window.launcherAPI) {
+    return;
+  }
+
+  try {
+    if (authStatus.connected) {
+      if (!window.launcherAPI.authLogout) {
+        return;
+      }
+      const status = await window.launcherAPI.authLogout();
+      renderAuthStatus(status);
+      appendLog("Microsoft account disconnected.");
+      return;
+    }
+
+    await startMicrosoftLoginFlow();
+    appendLog(`Microsoft account connected: ${authStatus.name || "OK"}`);
+  } catch (error) {
+    appendLog(`AUTH ERROR: ${error.message}`);
+    setStatus("Microsoft login failed.", true);
+  }
 });
 
 clearBtn.addEventListener("click", () => {
@@ -293,3 +387,4 @@ setBusy(false);
 setActiveTab("console");
 loadInitialSettings();
 loadReleaseInfo();
+refreshAuthStatus();

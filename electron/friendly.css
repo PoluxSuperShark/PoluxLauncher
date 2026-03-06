@@ -241,6 +241,17 @@ select:focus {
   font-size: 13px;
 }
 
+.auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-state {
+  font-size: 13px;
+  color: #1d4ed8;
+}
+
 .progress-wrap {
   display: grid;
   grid-template-columns: 1fr auto;

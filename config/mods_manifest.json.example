@@ -1,5 +1,6 @@
 {
   "example-modrinth.jar": "https://modrinth.com/mod/example/version/abc123",
   "example-curseforge.jar": "https://www.curseforge.com/minecraft/mc-mods/example/files/1234567",
-  "example-gdrive.jar": "https://drive.google.com/file/d/FILE_ID/view"
+  "example-gdrive.jar": "https://drive.google.com/file/d/FILE_ID/view",
+  "__curseforge_modpack__": "https://www.curseforge.com/minecraft/modpacks/example-pack/files/1234567"
 }

@@ -3,12 +3,15 @@ import html
 import json
 import re
 import subprocess
+import shutil
+import tempfile
 import time
+import zipfile
 from typing import Callable
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
-from minecraft_launcher_lib import command, forge
+from minecraft_launcher_lib import command, forge, microsoft_account
 
 # ================= CONFIG =================
 LAUNCHER_NAME = "PoluxLauncher"
@@ -51,6 +54,9 @@ MIN_RAM_GB = 2
 MAX_RAM_GB = 16
 DEFAULT_RAM_GB = 4
 MODS_MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "config", "mods_manifest.json")
+AUTH_FILE_PATH = os.path.join(LAUNCHER_DIR, "auth.json")
+MICROSOFT_CLIENT_ID = os.getenv("POLUX_MS_CLIENT_ID", "00000000402b5328")
+MICROSOFT_REDIRECT_URI = os.getenv("POLUX_MS_REDIRECT_URI", "http://localhost")
 
 
 def ensure_directories() -> None:
@@ -66,6 +72,179 @@ def _noop_crash(_: str) -> None:
     return
 
 
+def _read_auth_file() -> dict:
+    if not os.path.exists(AUTH_FILE_PATH):
+        return {}
+    try:
+        with open(AUTH_FILE_PATH, "r", encoding="utf8") as auth_file:
+            loaded = json.load(auth_file)
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _write_auth_file(data: dict) -> None:
+    os.makedirs(LAUNCHER_DIR, exist_ok=True)
+    with open(AUTH_FILE_PATH, "w", encoding="utf8") as auth_file:
+        json.dump(data, auth_file, indent=2)
+
+
+def _get_auth_record() -> dict:
+    storage = _read_auth_file()
+    record = storage.get("microsoft")
+    return record if isinstance(record, dict) else {}
+
+
+def _set_auth_record(record: dict | None) -> None:
+    storage = _read_auth_file()
+    if record:
+        storage["microsoft"] = record
+    else:
+        storage.pop("microsoft", None)
+    _write_auth_file(storage)
+
+
+def _set_auth_pending(pending: dict | None) -> None:
+    storage = _read_auth_file()
+    if pending:
+        storage["pending"] = pending
+    else:
+        storage.pop("pending", None)
+    _write_auth_file(storage)
+
+
+def _get_auth_pending() -> dict:
+    storage = _read_auth_file()
+    pending = storage.get("pending")
+    return pending if isinstance(pending, dict) else {}
+
+
+def get_auth_status() -> dict:
+    record = _get_auth_record()
+    refresh_token = str(record.get("refresh_token") or "").strip()
+    if refresh_token:
+        return {
+            "connected": True,
+            "provider": "microsoft",
+            "name": str(record.get("name") or ""),
+            "id": str(record.get("id") or ""),
+        }
+
+    return {
+        "connected": False,
+        "provider": "offline",
+        "name": "",
+        "id": "",
+    }
+
+
+def start_microsoft_login() -> dict:
+    if not MICROSOFT_CLIENT_ID.strip():
+        raise RuntimeError("POLUX_MS_CLIENT_ID manquant pour la connexion Microsoft.")
+
+    login_url, state, code_verifier = microsoft_account.get_secure_login_data(
+        MICROSOFT_CLIENT_ID,
+        MICROSOFT_REDIRECT_URI,
+    )
+    _set_auth_pending(
+        {
+            "state": state,
+            "code_verifier": code_verifier,
+            "created_at": int(time.time()),
+        }
+    )
+    return {
+        "login_url": login_url,
+        "redirect_uri": MICROSOFT_REDIRECT_URI,
+    }
+
+
+def complete_microsoft_login(redirect_url: str) -> dict:
+    pending = _get_auth_pending()
+    state = str(pending.get("state") or "").strip()
+    code_verifier = str(pending.get("code_verifier") or "").strip()
+    if not state or not code_verifier:
+        raise RuntimeError("Aucune connexion Microsoft en attente. Lancez d'abord auth-start.")
+
+    try:
+        auth_code = microsoft_account.parse_auth_code_url(redirect_url, state)
+    except Exception as exc:
+        raise RuntimeError("URL de redirection Microsoft invalide.") from exc
+
+    try:
+        profile = microsoft_account.complete_login(
+            MICROSOFT_CLIENT_ID,
+            None,
+            MICROSOFT_REDIRECT_URI,
+            auth_code,
+            code_verifier=code_verifier,
+        )
+    except microsoft_account.AccountNotOwnMinecraft as exc:
+        raise RuntimeError("Ce compte Microsoft ne possede pas Minecraft Java Edition.") from exc
+    except microsoft_account.AzureAppNotPermitted as exc:
+        raise RuntimeError(
+            "Application OAuth Microsoft non autorisee. Configurez POLUX_MS_CLIENT_ID/POLUX_MS_REDIRECT_URI."
+        ) from exc
+
+    _set_auth_record(
+        {
+            "refresh_token": str(profile.get("refresh_token") or ""),
+            "name": str(profile.get("name") or ""),
+            "id": str(profile.get("id") or ""),
+            "updated_at": int(time.time()),
+        }
+    )
+    _set_auth_pending(None)
+    return get_auth_status()
+
+
+def logout_microsoft() -> dict:
+    _set_auth_pending(None)
+    _set_auth_record(None)
+    return get_auth_status()
+
+
+def _refresh_microsoft_session() -> dict:
+    record = _get_auth_record()
+    refresh_token = str(record.get("refresh_token") or "").strip()
+    if not refresh_token:
+        raise RuntimeError("Aucun refresh token Microsoft enregistre. Connectez-vous d'abord.")
+
+    try:
+        profile = microsoft_account.complete_refresh(
+            MICROSOFT_CLIENT_ID,
+            None,
+            MICROSOFT_REDIRECT_URI,
+            refresh_token,
+        )
+    except microsoft_account.InvalidRefreshToken as exc:
+        logout_microsoft()
+        raise RuntimeError("Session Microsoft expiree. Reconnectez-vous.") from exc
+    except microsoft_account.AccountNotOwnMinecraft as exc:
+        raise RuntimeError("Ce compte Microsoft ne possede pas Minecraft Java Edition.") from exc
+
+    access_token = str(profile.get("access_token") or "").strip()
+    name = str(profile.get("name") or "").strip()
+    profile_id = str(profile.get("id") or "").strip()
+    next_refresh = str(profile.get("refresh_token") or refresh_token).strip()
+    if not access_token or not name or not profile_id:
+        raise RuntimeError("Reponse Microsoft incomplete, impossible de lancer le jeu.")
+
+    _set_auth_record(
+        {
+            "refresh_token": next_refresh,
+            "name": name,
+            "id": profile_id,
+            "updated_at": int(time.time()),
+        }
+    )
+    return {
+        "name": name,
+        "uuid": profile_id.replace("-", ""),
+        "access_token": access_token,
+    }
+
+
 def normalize_ram_gb(ram_gb: int | str) -> int:
     try:
         value = int(ram_gb)
@@ -77,6 +256,25 @@ def normalize_ram_gb(ram_gb: int | str) -> int:
     if value > MAX_RAM_GB:
         return MAX_RAM_GB
     return value
+
+
+def _split_server_address(address: str) -> tuple[str, int | None]:
+    raw = (address or "").strip()
+    if not raw:
+        return "", None
+
+    if ":" in raw:
+        host, port_text = raw.rsplit(":", 1)
+        host = host.strip()
+        try:
+            port = int(port_text)
+        except (TypeError, ValueError):
+            return host or raw, None
+        if port <= 0 or port > 65535:
+            return host or raw, None
+        return host or raw, port
+
+    return raw, None
 
 
 def _extract_google_drive_file_id(url: str) -> str | None:
@@ -250,9 +448,9 @@ def _resolve_curseforge_url(url: str) -> str | None:
     if "curseforge.com" not in parsed.netloc.lower():
         return None
 
-    file_match = re.search(r"/minecraft/mc-mods/([^/]+)/files/(\d+)", parsed.path)
+    file_match = re.search(r"/minecraft/(mc-mods|modpacks)/([^/]+)/files/(\d+)", parsed.path)
     if file_match:
-        slug, file_id = file_match.groups()
+        _category, slug, file_id = file_match.groups()
         download_url = f"https://www.curseforge.com/api/v1/mods/{slug}/files/{file_id}/download"
         response = requests.get(download_url, allow_redirects=False, timeout=30)
         if response.status_code in (301, 302, 303, 307, 308):
@@ -260,12 +458,12 @@ def _resolve_curseforge_url(url: str) -> str | None:
             if location:
                 return urljoin(download_url, location)
 
-    project_match = re.search(r"/minecraft/mc-mods/([^/?#]+)", parsed.path)
+    project_match = re.search(r"/minecraft/(mc-mods|modpacks)/([^/?#]+)", parsed.path)
     if not project_match:
         return None
 
-    slug = project_match.group(1)
-    response = requests.get(f"https://api.cfwidget.com/minecraft/mc-mods/{slug}", timeout=30)
+    category, slug = project_match.groups()
+    response = requests.get(f"https://api.cfwidget.com/minecraft/{category}/{slug}", timeout=30)
     response.raise_for_status()
     payload = response.json() or {}
     files = payload.get("files") or []
@@ -273,12 +471,18 @@ def _resolve_curseforge_url(url: str) -> str | None:
     if not files:
         return None
 
-    for file_data in files:
-        versions = [str(item).lower() for item in file_data.get("versions") or []]
-        has_mc_version = MC_VERSION.lower() in versions
-        has_forge = "forge" in versions
-        if has_mc_version and has_forge and file_data.get("downloadUrl"):
-            return file_data.get("downloadUrl")
+    if category == "mc-mods":
+        for file_data in files:
+            versions = [str(item).lower() for item in file_data.get("versions") or []]
+            has_mc_version = MC_VERSION.lower() in versions
+            has_forge = "forge" in versions
+            if has_mc_version and has_forge and file_data.get("downloadUrl"):
+                return file_data.get("downloadUrl")
+    else:
+        for file_data in files:
+            versions = [str(item).lower() for item in file_data.get("versions") or []]
+            if MC_VERSION.lower() in versions and file_data.get("downloadUrl"):
+                return file_data.get("downloadUrl")
 
     return files[0].get("downloadUrl")
 
@@ -302,11 +506,25 @@ def _resolve_download_url(url: str) -> str:
     return url
 
 
-def load_mods(
+def _manifest_key_is_modpack(key: str) -> bool:
+    normalized = key.strip().lower()
+    if normalized in {"__curseforge_modpack__", "__modpack_zip__", "__modpack__"}:
+        return True
+    if normalized.startswith("__curseforge_modpack_") or normalized.startswith("__modpack_zip_"):
+        return True
+    return False
+
+
+def _manifest_item_is_modpack(item: dict) -> bool:
+    source_type = str(item.get("type") or item.get("source") or "").strip().lower()
+    return source_type in {"curseforge_modpack", "modpack_zip", "modpack", "curseforge-zip"}
+
+
+def load_install_sources(
     on_log: Callable[[str], None] = _noop,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], list[str]]:
     if not os.path.exists(MODS_MANIFEST_PATH):
-        return MODS
+        return MODS, []
 
     try:
         with open(MODS_MANIFEST_PATH, "r", encoding="utf8") as manifest_file:
@@ -314,27 +532,58 @@ def load_mods(
     except Exception as exc:
         raise RuntimeError(f"Manifest mods invalide ({MODS_MANIFEST_PATH}): {exc}") from exc
 
+    mods: dict[str, str] = {}
+    modpacks: list[str] = []
+
     if isinstance(manifest, dict):
-        result = {str(name): str(url) for name, url in manifest.items()}
+        for raw_name, raw_url in manifest.items():
+            if raw_url is None:
+                continue
+            name = str(raw_name).strip()
+            url = str(raw_url).strip()
+            if not name or not url:
+                continue
+            if _manifest_key_is_modpack(name):
+                modpacks.append(url)
+            else:
+                mods[name] = url
     elif isinstance(manifest, list):
-        result = {}
         for item in manifest:
             if not isinstance(item, dict):
                 continue
-            name = item.get("name")
-            url = item.get("url")
-            if name and url:
-                result[str(name)] = str(url)
+            raw_url = item.get("url")
+            if raw_url is None:
+                continue
+            url = str(raw_url).strip()
+            if not url:
+                continue
+            if _manifest_item_is_modpack(item):
+                modpacks.append(url)
+                continue
+            raw_name = item.get("name")
+            if raw_name:
+                name = str(raw_name).strip()
+                if name:
+                    mods[name] = url
     else:
         raise RuntimeError(f"Format non supporte dans {MODS_MANIFEST_PATH}.")
 
-    if not result:
+    if not mods and not modpacks:
         raise RuntimeError(f"Aucun mod trouve dans {MODS_MANIFEST_PATH}.")
 
-    result = _expand_google_drive_folders(result, on_log=on_log)
+    mods = _expand_google_drive_folders(mods, on_log=on_log)
 
-    on_log(f"Manifest mods charge: {len(result)} entree(s)")
-    return result
+    on_log(f"Manifest mods charge: {len(mods)} entree(s)")
+    if modpacks:
+        on_log(f"Manifest modpack charge: {len(modpacks)} archive(s)")
+    return mods, modpacks
+
+
+def load_mods(
+    on_log: Callable[[str], None] = _noop,
+) -> dict[str, str]:
+    mods, _modpacks = load_install_sources(on_log=on_log)
+    return mods
 
 
 def _read_text_file(path: str, max_chars: int = 200000) -> str:
@@ -389,12 +638,199 @@ def download(url: str, path: str, on_status: Callable[[str], None] = _noop) -> N
     _stream_download(response, path, on_status=on_status)
 
 
+def _safe_extract_zip(zip_path: str, destination_dir: str) -> None:
+    base_dir = os.path.realpath(destination_dir)
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        for member in archive.infolist():
+            normalized_name = member.filename.replace("\\", "/")
+            if normalized_name.startswith("/") or normalized_name.startswith("../") or "/../" in normalized_name:
+                continue
+            if re.match(r"^[a-zA-Z]:", normalized_name):
+                continue
+
+            target_path = os.path.realpath(os.path.join(destination_dir, member.filename))
+            if target_path != base_dir and not target_path.startswith(base_dir + os.sep):
+                continue
+            archive.extract(member, destination_dir)
+
+
+def _copy_tree(source_dir: str, destination_dir: str) -> int:
+    if not os.path.isdir(source_dir):
+        return 0
+
+    copied_files = 0
+    for root, _dirs, files in os.walk(source_dir):
+        rel = os.path.relpath(root, source_dir)
+        target_root = destination_dir if rel == "." else os.path.join(destination_dir, rel)
+        os.makedirs(target_root, exist_ok=True)
+        for file_name in files:
+            source_path = os.path.join(root, file_name)
+            target_path = os.path.join(target_root, file_name)
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            shutil.copy2(source_path, target_path)
+            copied_files += 1
+
+    return copied_files
+
+
+def _resolve_curseforge_manifest_download_url(project_id: int, file_id: int, api_key: str) -> str | None:
+    headers = {
+        "Accept": "application/json",
+        "x-api-key": api_key,
+    }
+    endpoints = [
+        f"https://api.curseforge.com/v1/mods/{project_id}/files/{file_id}/download-url",
+        f"https://api.curseforge.com/v1/mods/files/{file_id}/download-url",
+    ]
+
+    for endpoint in endpoints:
+        try:
+            response = requests.get(endpoint, headers=headers, timeout=30)
+        except requests.RequestException:
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        try:
+            payload = response.json() or {}
+        except ValueError:
+            continue
+
+        data = payload.get("data")
+        if isinstance(data, str) and data:
+            return data
+
+    return None
+
+
+def _install_curseforge_manifest_files(
+    manifest: dict,
+    on_log: Callable[[str], None] = _noop,
+    on_status: Callable[[str], None] = _noop,
+) -> int:
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        return 0
+
+    api_key = (os.getenv("CURSEFORGE_API_KEY") or "").strip()
+    if not api_key:
+        on_log(
+            "Le modpack reference des fichiers CurseForge externes, mais CURSEFORGE_API_KEY est absent. "
+            "Tentative sans telechargement API."
+        )
+        return 0
+
+    downloaded = 0
+    total = len(files)
+    for index, item in enumerate(files, start=1):
+        if not isinstance(item, dict):
+            continue
+        project_id = item.get("projectID")
+        file_id = item.get("fileID")
+        if project_id is None or file_id is None:
+            continue
+
+        try:
+            project_id_int = int(project_id)
+            file_id_int = int(file_id)
+        except (TypeError, ValueError):
+            continue
+
+        download_url = _resolve_curseforge_manifest_download_url(project_id_int, file_id_int, api_key)
+        if not download_url:
+            on_log(f"Impossible de resoudre CurseForge projectID={project_id_int}, fileID={file_id_int}")
+            continue
+
+        destination = os.path.join(MODS_DIR, f"curseforge-{project_id_int}-{file_id_int}.jar")
+        if os.path.exists(destination):
+            continue
+
+        on_status(f"Modpack CurseForge {index}/{total}")
+        on_log(f"Telechargement CurseForge fileID={file_id_int}")
+        download(download_url, destination, on_status=on_status)
+        downloaded += 1
+
+    return downloaded
+
+
+def _install_modpack_zip(
+    source_url: str,
+    on_log: Callable[[str], None] = _noop,
+    on_status: Callable[[str], None] = _noop,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="polux_modpack_") as temp_dir:
+        zip_path = os.path.join(temp_dir, "modpack.zip")
+        unpack_dir = os.path.join(temp_dir, "unzipped")
+
+        on_log(f"Telechargement du modpack: {source_url}")
+        download(source_url, zip_path, on_status=on_status)
+
+        if not zipfile.is_zipfile(zip_path):
+            raise RuntimeError(f"Le fichier telecharge n'est pas un zip valide: {source_url}")
+
+        os.makedirs(unpack_dir, exist_ok=True)
+        _safe_extract_zip(zip_path, unpack_dir)
+
+        manifest_path = os.path.join(unpack_dir, "manifest.json")
+        manifest: dict = {}
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf8") as manifest_file:
+                    manifest = json.load(manifest_file) or {}
+            except Exception as exc:
+                on_log(f"manifest.json illisible ({exc}), installation en mode extraction simple.")
+
+        mc_version_in_pack = (
+            str((manifest.get("minecraft") or {}).get("version") or "").strip()
+            if isinstance(manifest, dict)
+            else ""
+        )
+        if mc_version_in_pack and mc_version_in_pack != MC_VERSION:
+            on_log(f"Attention: modpack pour Minecraft {mc_version_in_pack}, launcher configure en {MC_VERSION}.")
+
+        copied_files = 0
+
+        overrides_name = "overrides"
+        if isinstance(manifest, dict):
+            raw_overrides = manifest.get("overrides")
+            if isinstance(raw_overrides, str) and raw_overrides.strip():
+                overrides_name = raw_overrides.strip()
+
+        overrides_dir = os.path.join(unpack_dir, overrides_name)
+        copied_files += _copy_tree(overrides_dir, MC_DIR)
+
+        # Server packs are often flat zips (mods/config at root) without overrides.
+        copied_files += _copy_tree(os.path.join(unpack_dir, "mods"), MODS_DIR)
+        copied_files += _copy_tree(os.path.join(unpack_dir, "config"), os.path.join(MC_DIR, "config"))
+
+        downloaded_from_manifest = 0
+        if isinstance(manifest, dict):
+            downloaded_from_manifest = _install_curseforge_manifest_files(
+                manifest,
+                on_log=on_log,
+                on_status=on_status,
+            )
+
+        if copied_files == 0 and downloaded_from_manifest == 0:
+            raise RuntimeError(
+                "Aucun contenu de modpack installe. "
+                "Le zip ne contient pas d'overrides/mods exploitables ou les fichiers CurseForge n'ont pas pu etre resolves "
+                "(essayez avec CURSEFORGE_API_KEY)."
+            )
+
+        on_log(
+            f"Modpack installe: {copied_files} fichier(s) copie(s), "
+            f"{downloaded_from_manifest} fichier(s) CurseForge telecharge(s)."
+        )
+
+
 def install(
     on_log: Callable[[str], None] = _noop,
     on_status: Callable[[str], None] = _noop,
 ) -> None:
     ensure_directories()
-    mods = load_mods(on_log=on_log)
+    mods, modpacks = load_install_sources(on_log=on_log)
 
     on_status("Recherche Forge...")
     forge_version = forge.find_forge_version(MC_VERSION)
@@ -403,6 +839,15 @@ def install(
 
     forge.install_forge_version(forge_version, MC_DIR)
     on_log(f"Forge installe : {forge_version}")
+
+    if modpacks:
+        on_status("Installation du modpack...")
+        for modpack_url in modpacks:
+            _install_modpack_zip(
+                modpack_url,
+                on_log=on_log,
+                on_status=on_status,
+            )
 
     on_status("Installation des mods...")
     for name, url in mods.items():
@@ -426,6 +871,7 @@ def find_forge() -> str | None:
 def launch(
     username: str = "Player",
     ram_gb: int = DEFAULT_RAM_GB,
+    account_mode: str = "offline",
     on_log: Callable[[str], None] = _noop,
     on_status: Callable[[str], None] = _noop,
     on_crash: Callable[[str], None] = _noop_crash,
@@ -437,15 +883,33 @@ def launch(
 
     normalized_ram_gb = normalize_ram_gb(ram_gb)
 
-    options = {
-        "username": username.strip() or "Player",
-        "uuid": "00000000000000000000000000000000",
-        "token": "",
-        "jvmArguments": [f"-Xmx{normalized_ram_gb}G"],
-    }
+    normalized_mode = str(account_mode or "offline").strip().lower()
+    if normalized_mode == "microsoft":
+        session = _refresh_microsoft_session()
+        options = {
+            "username": session["name"],
+            "uuid": session["uuid"],
+            "token": session["access_token"],
+            "jvmArguments": [f"-Xmx{normalized_ram_gb}G"],
+        }
+        on_log(f"Session Microsoft activee: {session['name']}")
+    else:
+        options = {
+            "username": username.strip() or "Player",
+            "uuid": "00000000000000000000000000000000",
+            "token": "",
+            "jvmArguments": [f"-Xmx{normalized_ram_gb}G"],
+        }
 
     minecraft_command = command.get_minecraft_command(version, MC_DIR, options)
-    minecraft_command += ["--server", DEFAULT_SERVER]
+    server_host, server_port = _split_server_address(DEFAULT_SERVER)
+    if server_host:
+        minecraft_command += ["--server", server_host]
+        if server_port is not None:
+            minecraft_command += ["--port", str(server_port)]
+        # Newer Minecraft versions rely on Quick Play for auto-join behavior.
+        quick_play_target = f"{server_host}:{server_port or 25565}"
+        minecraft_command += ["--quickPlayMultiplayer", quick_play_target]
     launch_started_at = time.time()
 
     creation_flags = 0

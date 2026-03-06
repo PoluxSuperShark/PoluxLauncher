@@ -1,6 +1,9 @@
 const usernameInput = document.getElementById("username");
 const themeModeSelect = document.getElementById("themeMode");
 const ramGbSelect = document.getElementById("ramGb");
+const accountModeSelect = document.getElementById("accountMode");
+const authBtn = document.getElementById("authBtn");
+const authStateNode = document.getElementById("authState");
 const installBtn = document.getElementById("installBtn");
 const playBtn = document.getElementById("playBtn");
 const statusNode = document.getElementById("status");
@@ -18,8 +21,10 @@ const runtimeDot = document.getElementById("runtime-dot");
 
 let busy = false;
 let selectedRamGb = 4;
+let selectedAccountMode = "offline";
 let activeTab = "console";
 let releaseInfo = null;
+let authStatus = { connected: false, provider: "offline", name: "", id: "" };
 
 function setActiveTab(tab) {
   if (tab === "logs" || tab === "changelog") {
@@ -78,10 +83,13 @@ function syncRuntimeIndicator() {
 function applySettings(settings) {
   const theme = settings?.theme === "friendly" ? "friendly" : "tactical";
   const ramGb = normalizeRamGb(settings?.ramGb);
+  const accountMode = settings?.accountMode === "microsoft" ? "microsoft" : "offline";
 
   selectedRamGb = ramGb;
+  selectedAccountMode = accountMode;
   themeModeSelect.value = theme;
   ramGbSelect.value = String(ramGb);
+  accountModeSelect.value = accountMode;
 }
 
 async function persistSettings(updates) {
@@ -118,7 +126,57 @@ function setBusy(nextBusy) {
   usernameInput.disabled = busy;
   themeModeSelect.disabled = busy;
   ramGbSelect.disabled = busy;
+  accountModeSelect.disabled = busy;
+  authBtn.disabled = busy;
   syncRuntimeIndicator();
+}
+
+function renderAuthStatus(status) {
+  authStatus = status || { connected: false, provider: "offline", name: "", id: "" };
+  if (authStatus.connected) {
+    authStateNode.textContent = `Microsoft connecte: ${authStatus.name || "Unknown"}`;
+    authBtn.textContent = "Deconnexion Microsoft";
+  } else {
+    authStateNode.textContent = "Mode offline actif.";
+    authBtn.textContent = "Connexion Microsoft";
+  }
+}
+
+async function refreshAuthStatus() {
+  if (!window.launcherAPI?.authStatus) {
+    return;
+  }
+
+  try {
+    const status = await window.launcherAPI.authStatus();
+    renderAuthStatus(status);
+  } catch (error) {
+    appendLog(`ERREUR AUTH: ${error.message}`);
+  }
+}
+
+async function startMicrosoftLoginFlow() {
+  if (!window.launcherAPI?.authStart || !window.launcherAPI?.authComplete) {
+    appendLog("ERREUR AUTH: API Microsoft indisponible.");
+    return;
+  }
+
+  const loginData = await window.launcherAPI.authStart();
+  const opened = await window.launcherAPI.openExternal(loginData.login_url);
+  if (!opened) {
+    throw new Error("Impossible d'ouvrir la page Microsoft.");
+  }
+
+  const redirectUrl = window.prompt(
+    "Apres connexion Microsoft, colle ici l'URL complete de redirection :",
+    "",
+  );
+  if (!redirectUrl || !redirectUrl.trim()) {
+    throw new Error("Connexion annulee (URL non fournie).");
+  }
+
+  const status = await window.launcherAPI.authComplete(redirectUrl.trim());
+  renderAuthStatus(status);
 }
 
 function formatPublishedDate(isoText) {
@@ -221,6 +279,12 @@ ramGbSelect.addEventListener("change", async () => {
   await persistSettings({ ramGb: selectedRamGb });
 });
 
+accountModeSelect.addEventListener("change", async () => {
+  selectedAccountMode = accountModeSelect.value === "microsoft" ? "microsoft" : "offline";
+  appendLog(`Mode de compte: ${selectedAccountMode}.`);
+  await persistSettings({ accountMode: selectedAccountMode });
+});
+
 installBtn.addEventListener("click", () => {
   if (busy || !window.launcherAPI) {
     return;
@@ -236,11 +300,41 @@ playBtn.addEventListener("click", () => {
     return;
   }
 
+  if (selectedAccountMode === "microsoft" && !authStatus.connected) {
+    setStatus("Connecte un compte Microsoft d'abord.", true);
+    appendLog("ERREUR: mode Microsoft selectionne sans compte connecte.");
+    return;
+  }
+
   const username = (usernameInput.value || "").trim() || "Player";
   crashReportNode.textContent = "";
-  appendLog(`Demarrage du jeu pour ${username} avec ${selectedRamGb}G...`);
+  appendLog(`Demarrage du jeu (${selectedAccountMode}) avec ${selectedRamGb}G...`);
   setStatus("Lancement en cours...");
-  window.launcherAPI.startLaunch(username, selectedRamGb);
+  window.launcherAPI.startLaunch(username, selectedRamGb, selectedAccountMode);
+});
+
+authBtn.addEventListener("click", async () => {
+  if (busy || !window.launcherAPI) {
+    return;
+  }
+
+  try {
+    if (authStatus.connected) {
+      if (!window.launcherAPI.authLogout) {
+        return;
+      }
+      const status = await window.launcherAPI.authLogout();
+      renderAuthStatus(status);
+      appendLog("Compte Microsoft deconnecte.");
+      return;
+    }
+
+    await startMicrosoftLoginFlow();
+    appendLog(`Compte Microsoft connecte: ${authStatus.name || "OK"}`);
+  } catch (error) {
+    appendLog(`ERREUR AUTH: ${error.message}`);
+    setStatus("Connexion Microsoft echouee", true);
+  }
 });
 
 tabConsoleBtn.addEventListener("click", () => setActiveTab("console"));
@@ -264,3 +358,4 @@ setBusy(false);
 setActiveTab("console");
 loadInitialSettings();
 loadReleaseInfo();
+refreshAuthStatus();

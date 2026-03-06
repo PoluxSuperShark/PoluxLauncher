@@ -25,6 +25,7 @@ let releaseInfoCache = null;
 let launcherSettings = {
   theme: "tactical",
   ramGb: DEFAULT_RAM_GB,
+  accountMode: "offline",
 };
 
 function parseComparableVersion(versionText) {
@@ -149,6 +150,10 @@ function normalizeRamGb(ramGb) {
   return Math.max(MIN_RAM_GB, Math.min(MAX_RAM_GB, parsed));
 }
 
+function normalizeAccountMode(accountMode) {
+  return accountMode === "microsoft" ? "microsoft" : "offline";
+}
+
 function getSettingsPath() {
   return path.join(app.getPath("userData"), "launcher-settings.json");
 }
@@ -158,6 +163,7 @@ function loadSettings(defaultTheme) {
   const defaults = {
     theme: normalizedTheme,
     ramGb: DEFAULT_RAM_GB,
+    accountMode: "offline",
   };
 
   try {
@@ -172,6 +178,7 @@ function loadSettings(defaultTheme) {
     return {
       theme: normalizeTheme(parsed?.theme, defaults.theme),
       ramGb: normalizeRamGb(parsed?.ramGb),
+      accountMode: normalizeAccountMode(parsed?.accountMode),
     };
   } catch {
     return defaults;
@@ -255,7 +262,7 @@ function pipeStream(sender, stream) {
   });
 }
 
-function startBackend(sender, action, username, ramGb) {
+function startBackend(sender, action, username, ramGb, accountMode) {
   const runtime = resolveBackendRuntime();
 
   if (app.isPackaged && !fs.existsSync(runtime.command)) {
@@ -267,11 +274,95 @@ function startBackend(sender, action, username, ramGb) {
   if (action === "launch") {
     args.push("--username", (username || "Player").trim() || "Player");
     args.push("--ram-gb", String(normalizeRamGb(ramGb)));
+    args.push("--account-mode", normalizeAccountMode(accountMode));
   }
 
   return spawn(runtime.command, args, {
     cwd: runtime.cwd,
     windowsHide: true,
+  });
+}
+
+function parseBackendOutput(buffer) {
+  const lines = String(buffer || "").split(/\r?\n/);
+  const result = {
+    data: null,
+    logs: [],
+    errors: [],
+    statuses: [],
+  };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "").trim();
+    if (!line) {
+      continue;
+    }
+    if (line.startsWith("[DATA] ")) {
+      const payload = line.slice(7);
+      try {
+        result.data = JSON.parse(payload);
+      } catch {
+        result.errors.push(`JSON invalide: ${payload}`);
+      }
+      continue;
+    }
+    if (line.startsWith("[ERROR] ")) {
+      result.errors.push(line.slice(8));
+      continue;
+    }
+    if (line.startsWith("[STATUS] ")) {
+      result.statuses.push(line.slice(9));
+      continue;
+    }
+    if (line.startsWith("[LOG] ")) {
+      result.logs.push(line.slice(6));
+      continue;
+    }
+    result.logs.push(line);
+  }
+
+  return result;
+}
+
+function runBackendCommand(args) {
+  const runtime = resolveBackendRuntime();
+
+  return new Promise((resolve, reject) => {
+    if (app.isPackaged && !fs.existsSync(runtime.command)) {
+      reject(new Error("Backend executable introuvable dans le package."));
+      return;
+    }
+
+    const child = spawn(runtime.command, [...runtime.argsPrefix, ...args], {
+      cwd: runtime.cwd,
+      windowsHide: true,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on("error", (error) => {
+      reject(new Error(`Impossible de lancer le backend: ${error.message}`));
+    });
+
+    child.on("close", (code) => {
+      const parsed = parseBackendOutput(`${stdout}\n${stderr}`);
+      if (code !== 0) {
+        const message = parsed.errors[0] || `Commande backend echouee (code ${code}).`;
+        reject(new Error(message));
+        return;
+      }
+      resolve(parsed);
+    });
   });
 }
 
@@ -281,6 +372,29 @@ function registerIpcOnce() {
   }
 
   ipcMain.handle("launcher:get-settings", () => ({ ...launcherSettings }));
+  ipcMain.handle("launcher:auth-status", async () => {
+    const result = await runBackendCommand(["auth-status"]);
+    return result.data || { connected: false, provider: "offline", name: "", id: "" };
+  });
+  ipcMain.handle("launcher:auth-start", async () => {
+    const result = await runBackendCommand(["auth-start"]);
+    if (!result.data?.login_url) {
+      throw new Error("Aucune URL Microsoft retournee par le backend.");
+    }
+    return result.data;
+  });
+  ipcMain.handle("launcher:auth-complete", async (_event, payload) => {
+    const redirectUrl = String(payload?.redirectUrl || "").trim();
+    if (!redirectUrl) {
+      throw new Error("redirectUrl manquant.");
+    }
+    const result = await runBackendCommand(["auth-complete", "--redirect-url", redirectUrl]);
+    return result.data || { connected: false, provider: "offline", name: "", id: "" };
+  });
+  ipcMain.handle("launcher:auth-logout", async () => {
+    const result = await runBackendCommand(["auth-logout"]);
+    return result.data || { connected: false, provider: "offline", name: "", id: "" };
+  });
   ipcMain.handle("launcher:get-release-info", async () => {
     if (!releaseInfoCache) {
       releaseInfoCache = await buildReleaseInfo();
@@ -309,8 +423,11 @@ function registerIpcOnce() {
     const ramGb = Object.prototype.hasOwnProperty.call(updates || {}, "ramGb")
       ? normalizeRamGb(updates.ramGb)
       : launcherSettings.ramGb;
+    const accountMode = Object.prototype.hasOwnProperty.call(updates || {}, "accountMode")
+      ? normalizeAccountMode(updates.accountMode)
+      : launcherSettings.accountMode;
 
-    launcherSettings = { theme, ramGb };
+    launcherSettings = { theme, ramGb, accountMode };
     saveSettings(launcherSettings);
 
     if (theme !== previousTheme) {
@@ -332,6 +449,7 @@ function registerIpcOnce() {
     const action = payload?.action;
     const username = payload?.username || "Player";
     const ramGb = normalizeRamGb(payload?.ramGb ?? launcherSettings.ramGb);
+    const accountMode = normalizeAccountMode(payload?.accountMode ?? launcherSettings.accountMode);
 
     if (!["install", "launch"].includes(action)) {
       event.sender.send("launcher:error", `Action invalide: ${String(action)}`);
@@ -341,10 +459,11 @@ function registerIpcOnce() {
     launcherSettings = {
       ...launcherSettings,
       ramGb,
+      accountMode,
     };
     saveSettings(launcherSettings);
 
-    activeProcess = startBackend(event.sender, action, username, ramGb);
+    activeProcess = startBackend(event.sender, action, username, ramGb, accountMode);
     if (!activeProcess) {
       return;
     }

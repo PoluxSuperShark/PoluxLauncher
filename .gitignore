@@ -214,3 +214,4 @@ npm-debug.log*
 config/voicechat-client.toml
 config/voicechat/
 
+installer/PoluxLauncher_Setup.exe

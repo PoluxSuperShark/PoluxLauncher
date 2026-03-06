@@ -265,6 +265,17 @@ select:focus {
   cursor: pointer;
 }
 
+.auth-btn {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.auth-state {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--cyan);
+}
+
 #console,
 #crashReport,
 #changelog {
