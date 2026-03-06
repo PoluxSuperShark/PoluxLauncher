@@ -56,7 +56,8 @@ DEFAULT_RAM_GB = 4
 MODS_MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "config", "mods_manifest.json")
 AUTH_FILE_PATH = os.path.join(LAUNCHER_DIR, "auth.json")
 MICROSOFT_CLIENT_ID = os.getenv("POLUX_MS_CLIENT_ID", "00000000402b5328")
-MICROSOFT_REDIRECT_URI = os.getenv("POLUX_MS_REDIRECT_URI", "http://localhost")
+# Redirect URI expected by the default public Microsoft client used by minecraft_launcher_lib.
+MICROSOFT_REDIRECT_URI = os.getenv("POLUX_MS_REDIRECT_URI", "https://login.live.com/oauth20_desktop.srf")
 
 
 def ensure_directories() -> None:
