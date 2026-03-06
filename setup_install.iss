@@ -2,9 +2,8 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 [Setup]
-[Setup]
 AppName=PoluxLauncher
-AppVersion=1.0.0
+AppVersion=1.2.0
 DefaultDirName={localappdata}\PoluxLauncher
 DefaultGroupName=PoluxLauncher
 OutputDir=installer
@@ -15,12 +14,16 @@ PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 
 [Files]
-Source: "C:\\users\home\Documents\PoluxLauncher\dist\PoluxLauncher.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Copy the unpacked Electron app generated in dist\win-unpacked
+Source: "dist\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{userdesktop}\PoluxLauncher"; Filename: "{app}\PoluxLauncher.exe"
-Name: "{group}\PoluxLauncher"; Filename: "{app}\PoluxLauncher.exe"
+Name: "{userdesktop}\PoluxLauncher"; Filename: "{app}\PoluxLauncher Friendly.exe"; Check: FileExists(ExpandConstant('{app}\PoluxLauncher Friendly.exe'))
+Name: "{userdesktop}\PoluxLauncher"; Filename: "{app}\PoluxLauncher Tactical.exe"; Check: FileExists(ExpandConstant('{app}\PoluxLauncher Tactical.exe'))
+Name: "{group}\PoluxLauncher"; Filename: "{app}\PoluxLauncher Friendly.exe"; Check: FileExists(ExpandConstant('{app}\PoluxLauncher Friendly.exe'))
+Name: "{group}\PoluxLauncher"; Filename: "{app}\PoluxLauncher Tactical.exe"; Check: FileExists(ExpandConstant('{app}\PoluxLauncher Tactical.exe'))
 
 [Run]
-Filename: "{app}\PoluxLauncher.exe"; Description: "Lancer PoluxLauncher"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\PoluxLauncher Friendly.exe"; Description: "Lancer PoluxLauncher"; Flags: nowait postinstall skipifsilent; Check: FileExists(ExpandConstant('{app}\PoluxLauncher Friendly.exe'))
+Filename: "{app}\PoluxLauncher Tactical.exe"; Description: "Lancer PoluxLauncher"; Flags: nowait postinstall skipifsilent; Check: FileExists(ExpandConstant('{app}\PoluxLauncher Tactical.exe'))
